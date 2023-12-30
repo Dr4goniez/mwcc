@@ -1,24 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import * as http from 'http';
-import * as https from 'https';
+import Axios, { AxiosRequestConfig, AxiosInstance } from 'axios';
+import { wrapper } from 'axios-cookiejar-support';
+import { CookieJar } from 'tough-cookie';
 
-import axios, { AxiosRequestConfig } from 'axios';
-
-/**
- * The JavaScript primitive types.
- */
-type primitive = string|number|bigint|boolean|null|undefined;
-
-/**
- * The API query parameters.
- */
-interface ApiParams {
-	[key: string]: primitive|primitive[];
-}
+import packageJson from '../package.json';
 
 /**
  * The structure of `response.query.tokens` in `action=query&meta=tokens&type=*`.
- * A `null` value means that the cashed token is expired (regulated by {@link Api.badToken}).
+ * A `null` value means that the cashed token is expired (updated by {@link Api.badToken}).
  */
 interface Token {
 	createaccounttoken: string|null;
@@ -31,16 +20,69 @@ interface Token {
 	userrightstoken: string|null;
 	watchtoken: string|null;
 }
-
 /**
  * A purely private container of credentials.
  */
 const tokens: (Token|null)[] = [];
 /**
- * The number of API instances that have been initialized.
+ * The number of `Api` instances that have been initialized.
  */
 let instanceIndex = 0;
 
+/**
+ * The parameter to {@link Api.init}.
+ */
+export interface Initializer {
+	/**
+	 * API endpoint as a full URL (e.g. `https://en.wikipedia.org/w/api.php`).
+	 */
+	apiUrl: string;
+	/**
+	 * The bot's username (if you use `action=login`).
+	 */
+	username?: string;
+	/**
+	 * The bot's password (if you use `action=login`).
+	 */
+	password?: string;
+	/**
+	 * OAuth access token (if you use OAuth 2 in Extension:OAuth).
+	 */
+	OAuth2AccessToken?: string;
+	/**
+	 * OAuth credentials (if you use OAuth 1.0a in Extension:OAuth).
+	 */
+	OAuthCredentials?: {
+		/** A 16-digit alphanumeric key. */
+		consumerToken: string;
+		/** A 20-digit alphanumeric key. */
+		consumerSecret: string;
+		/** A 16-digit alphanumeric key. */
+		accessToken: string;
+		/** A 20-digit alphanumeric key. */
+		accessSecret: string;
+	};
+	/**
+	 * An HTTP User-Agent header (`<client name>/<version> (<contact information>)`).
+	 * @see https://meta.wikimedia.org/wiki/User-Agent_policy
+	 */
+	userAgent?: string;
+	/**
+	 * Default {@link https://github.com/axios/axios | Axios request config options}.
+	 */
+	options?: AxiosRequestConfig;
+}
+
+/**
+ * The JavaScript primitive types.
+ */
+type primitive = string|number|bigint|boolean|null|undefined;
+/**
+ * The API query parameters.
+ */
+interface ApiParams {
+	[key: string]: primitive|primitive[];
+}
 /**
  * The object used in the `catch` block of `Promise`.
  */
@@ -54,21 +96,38 @@ export interface ApiResponseError {
 
 /**
  * An interface to interact with the {@link https://www.mediawiki.org/wiki/API:Main_page | MediaWiki Action API}.
+ * 
+ * Part of this class is credited to the developers of MediaWiki core.
+ * @link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/index3.html
+ * @link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/edit2.html
  */
 export class Api {
+
+	/**
+	 * The API endpoint. This must be included in the config of every HTTP request issued
+	 * by the Axios instance.
+	 */
+	readonly apiUrl: string;
+
+	/**
+	 * A unique Axios instance for an Api instance.
+	 */
+	readonly axios: AxiosInstance;
 
 	/**
 	 * The index number of the `Api` instance.
 	 */
 	private index: number;
-	/**
-	 * The default config for HTTP requests, initialized by the constructor.
-	 */
-	config: AxiosRequestConfig;
+
 	/**
 	 * An array of `AbortController`s used in {@link abort}.
 	 */
 	private aborts: AbortController[];
+
+	/**
+	 * Whether the current user is anonymous.
+	 */
+	anon: boolean;
 
 	/**
 	 * Initialize a new `Api` instance to interact with the API of a particular MediaWiki site.
@@ -116,33 +175,125 @@ export class Api {
 	 * @param options Default {@link https://github.com/axios/axios | Axios request config options}.
 	 */
 	constructor(apiUrl: string, options: AxiosRequestConfig = {}) {
-		this.index = (instanceIndex++);
-		tokens[this.index] = null;
-		this.config = Object.assign(
+
+		// Set up the API endpoint
+		if (!apiUrl) {
+			throw new Error('[mwcc] No endpoint is passed to the Api constructor');
+		} else {
+			this.apiUrl = apiUrl;
+		}
+
+		// Initialize an Axios instance for this Api instance
+		const config = Object.assign(
 			{},
 			Api.defaultOptions,
 			options,
-			{url: apiUrl}
+			/**
+			 * Make it possible for the Axios instance to handle cookies and sessions. Without this,
+			 * `action=login` keeps complaining about session timeout after fetching a login token.
+			 * ```
+			 * {
+			 *	login: {
+			 *		result: 'Failed',
+			 *		reason: 'Unable to continue login. Your session most likely timed out.'
+			 *	}
+			 * }
+			 * ```
+			 */
+			{jar: new CookieJar()}
 		);
+		this.axios = wrapper(Axios.create(config)); // 'Infuse' jar support to the Axios instance
+
+		// Set up an index for this Api instance used to retrieve cached tokens
+		this.index = (instanceIndex++);
+		tokens[this.index] = null;
+
+		// Storage of API requests. This makes it possible to manually abort unfinished ones
 		this.aborts = [];
+
+		// User-related properties
+		this.anon = true;
+
 	}
 
 	/**
 	 * The default config for HTTP requests, merged with the config passed to the constructor.
 	 */
-	private static defaultOptions: AxiosRequestConfig = {
-		url: '/w/api.php',
+	static readonly defaultOptions: AxiosRequestConfig = {
 		method: 'GET',
-		baseURL: 'https://en.wikipedia.org',
 		headers: {
-			'User-Agent': 'drakobot/1.0.0'
+			'User-Agent': 'mwcc/' + packageJson.version
 		},
 		timeout: 30 * 1000, // 30 seconds
+		withCredentials: true, // Related to cookie handling
 		responseType: 'json',
-		responseEncoding: 'utf8',
-		httpAgent: new http.Agent({keepAlive: true}),
-		httpsAgent: new https.Agent({keepAlive: true}),
+		responseEncoding: 'utf8'
 	};
+
+	/**
+	 * Login to a wiki and initialize a new `Api` instance for the project.
+	 * 
+	 * @param initializer Object for instance initialization.
+	 */
+	static async init(initializer: Initializer): Promise<Api|null> {
+
+		// Check the initializer's properties
+		const {
+			apiUrl,
+			username,
+			password,
+			OAuth2AccessToken,
+			OAuthCredentials,
+			userAgent,
+			options,
+		} = initializer;
+		if (!apiUrl) {
+			throw new Error('[mwcc] No API endpoint is provided');
+		}
+		const pattern =
+			username && password ? 1 :
+			OAuth2AccessToken ? 2 :
+			OAuthCredentials ? 3 : 0;
+		if (!pattern) {
+			throw new Error('[mwcc] Required credentials are missing');
+		}
+
+		// Get axios config
+		const config = Object.assign({}, options || {});
+		if (userAgent) {
+			if (!config.headers) config.headers = {};
+			config.headers['User-Agent'] = userAgent;
+		}
+
+		// Create an Api instance
+		const api = new Api(apiUrl, config);
+
+		// Fetch a login token
+		const token = await api.getToken('login', {assert: void 0});
+		if (typeof token !== 'string') {
+			console.log('[mwcc] Login failed: No valid login token', token);
+			return null;
+		}
+
+		// Login
+		const resLogin = await api.post({
+			action: 'login',
+			lgname: username,
+			lgpassword: password,
+			lgtoken: token,
+			assert: void 0
+		});
+		if (resLogin.error || !resLogin.login || resLogin.login.result !== 'Success') {
+			console.log('[mwcc] Login failed', resLogin);
+			return null;
+		} else {
+			console.log('[mwcc] Logged in as ' + username);
+		}
+
+		api.anon = false;
+		return api;
+
+	}
 
 	/**
 	 * Abort all unfinished requests issued by this `Api` object.
@@ -157,11 +308,11 @@ export class Api {
 	}
 
 	/**
-	 * Perform API get request. See also {@link ajax} for error handling.
+	 * Perform API GET request.
 	 * 
 	 * @param parameters API parameters.
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
-	 * @returns 
+	 * @returns See {@link ajax}.
 	 */
 	get(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
 		options.method = 'GET';
@@ -169,11 +320,11 @@ export class Api {
 	}
 
 	/**
-	 * Perform API post request. See also {@link ajax} for error handling.
+	 * Perform API POST request.
 	 * 
 	 * @param parameters API parameters.
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
-	 * @returns 
+	 * @returns See {@link ajax}.
 	 */
 	post(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
 		options.method = 'POST';
@@ -203,7 +354,7 @@ export class Api {
 	}
 
 	/**
-	 * Perform the API call. This method sends an HTTP GET request by default.
+	 * Perform the API call. This method sends a GET request by default.
 	 * 
 	 * If the return value is a rejected Promise object, it always contains an `error`
 	 * property with internal `code` and `info` properties.
@@ -243,37 +394,43 @@ export class Api {
 		// Clean up parameters
 		this.preprocessParameters(parameters);
 
-		// GET: params, POST: data
-		const config = Object.assign({}, this.config, options);
-		const def = {
+		// Set up the request body
+		const defaults = {
 			action: 'query',
 			format: 'json',
 			formatversion: '2'
 		};
-		config.method = config.method || 'GET';
-		if (/^GET$/i.test(config.method)) {
-			config.params = config.params || {};
-			Object.assign(config.params, def, parameters);
-			if (token) config.params.token = token;
+		options.method = options.method || this.axios.defaults.method || 'GET';
+		if (/^GET$/i.test(options.method)) {
+
+			// The query parameters to a GET request should be in `application/json` format
+			options.params = options.params || {};
+			Object.assign(options.params, this.axios.defaults.params, defaults, parameters);
+			if (token) options.params.token = token;
+
 		} else {
+
 			/**
-			 * The Action API only accepts data in `application/x-www-form-urlencoded` or `multipart/form-data`
-			 * format, and does not support `application/json`.
+			 * The data sent by a POST request must be in either `application/x-www-form-urlencoded`
+			 * or `multipart/form-data` format (no support for `application/json`).
+			 * 
 			 * @see https://www.mediawiki.org/wiki/API:Data_formats
 			 */ 
-			const data = Object.assign(config.data || {}, def, parameters);
+			const data = Object.assign(options.data || {}, this.axios.defaults.data, defaults, parameters);
 			if (token) data.token = token;
-			config.data = new URLSearchParams(data).toString();
+			options.data = new URLSearchParams(data).toString();
+
 		}
+		options.url = this.apiUrl; // This is required for every request even if we use an Axios **instance**
 
 		// Add an abort controller
 		const controller = new AbortController();
-		config.signal = controller.signal;
+		options.signal = controller.signal;
 		this.aborts.push(controller);
 
 		// Issue an HTTP request
 		return new Promise((resolve, reject) => {
-			axios.request(config)
+			this.axios.request(options)
 			.then((response) => {
 				if (response === void 0 || response === null || !response.data) {
 					reject({
@@ -284,12 +441,14 @@ export class Api {
 						}
 					});
 				} else if (typeof response.data !== 'object') {
+					// In most cases the raw HTML of [[Main page]]
 					reject({
 						error: {
 							code: 'invalidjson',
 							info: 'Invalid JSON response (check the request URL?)'
 						}
 					});
+				// When we get a JSON response from the API, it's always a "200 OK"
 				} else if (response.data.error) {
 					reject(response.data);
 				} else {
@@ -343,7 +502,7 @@ export class Api {
 		return new Promise((resolve, reject) => {
 			this.getToken(tokenType, assertParams)
 			.then((token) => {
-				params.token = <string>token;
+				params.token = token;
 				return this.post(params, options)
 				.then(resolve)
 				.catch((err: ApiResponseError) => {
@@ -353,10 +512,12 @@ export class Api {
 						this.badToken(tokenType);
 						// Try again, once
 						params.token = void 0;
-						return this.getToken(tokenType, assertParams).then((t) => {
-							params.token = <string>t;
+						return this.getToken(tokenType, assertParams)
+						.then((t) => {
+							params.token = t;
 							return this.post(params, options);
-						});
+						})
+						.catch(reject);
 					}
 
 					reject(err);
@@ -374,13 +535,13 @@ export class Api {
 	 * 'assert' parameter.
 	 * @returns Received token. Can be a rejected Promise object on failure.
 	 */
-	getToken(tokenType: string, additionalParams?: ApiParams|string): Promise<string|ApiResponseError> {
+	getToken(tokenType: string, additionalParams?: ApiParams|string): Promise<string> {
 
 		// Do we have a cashed token?
 		tokenType = mapLegacyToken(tokenType);
 		const element = tokens[this.index];
-		const tokenName = tokenType + 'token';
-		const cashedToken = element && element[tokenName as keyof Token];
+		const tokenName = tokenType + 'token' as keyof Token;
+		const cashedToken = element && element[tokenName];
 		if (cashedToken) {
 			return Promise.resolve(cashedToken);
 		}
@@ -402,7 +563,7 @@ export class Api {
 				const resToken: Token|undefined = res?.query?.tokens;
 				if (resToken) {
 					tokens[this.index] = resToken;
-					const token = resToken[tokenName as keyof Token];
+					const token = resToken[tokenName];
 					if (token) {
 						resolve(token);
 					} else {
@@ -441,6 +602,29 @@ export class Api {
 		if (tokens[index] && tokens[index]![tokenName]) {
 			tokens[index]![tokenName] = null;
 		}
+	}
+
+	// From mw.Api.plugin.edit
+
+	/**
+	 * Post to API with csrf token. If we have no token, get one and try to post. If we have a cached token
+	 * try using that, and if it fails, blank out the cached token and start over.
+	 *
+	 * @param params API parameters.
+	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
+	 * @returns See {@link ajax}.
+	 */
+	postWithEditToken(params: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
+		return this.postWithToken('csrf', params, options);
+	}
+
+	/**
+	 * API helper to grab a csrf token.
+	 *
+	 * @returns Received token.
+	 */
+	getEditToken(): Promise<string> {
+		return this.getToken('csrf');
 	}
 
 }
