@@ -16,16 +16,20 @@ interface ApiParams {
 	[key: string]: primitive|primitive[];
 }
 
+/**
+ * The structure of `response.query.tokens` in `action=query&meta=tokens&type=*`.
+ * A `null` value means that the cashed token is expired (regulated by {@link Api.badToken}).
+ */
 interface Token {
-	createaccounttoken: string;
-	csrftoken: string;
-	deleteglobalaccounttoken: string;
-	logintoken: string;
-	patroltoken: string;
-	rollbacktoken: string;
-	setglobalaccountstatustoken: string;
-	userrightstoken: string;
-	watchtoken: string;
+	createaccounttoken: string|null;
+	csrftoken: string|null;
+	deleteglobalaccounttoken: string|null;
+	logintoken: string|null;
+	patroltoken: string|null;
+	rollbacktoken: string|null;
+	setglobalaccountstatustoken: string|null;
+	userrightstoken: string|null;
+	watchtoken: string|null;
 }
 
 /**
@@ -36,6 +40,17 @@ const tokens: (Token|null)[] = [];
  * The number of API instances that have been initialized.
  */
 let instanceIndex = 0;
+
+/**
+ * The object used in the `catch` block of `Promise`.
+ */
+export interface ApiResponseError {
+	error: {
+		code: string;
+		info: string;
+		details?: any;
+	};
+}
 
 /**
  * An interface to interact with the {@link https://www.mediawiki.org/wiki/API:Main_page | MediaWiki Action API}.
@@ -144,7 +159,7 @@ export class Api {
 	/**
 	 * Perform API get request. See also {@link ajax} for error handling.
 	 * 
-	 * @param parameters The query parameters.
+	 * @param parameters API parameters.
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns 
 	 */
@@ -156,7 +171,7 @@ export class Api {
 	/**
 	 * Perform API post request. See also {@link ajax} for error handling.
 	 * 
-	 * @param parameters The query parameters.
+	 * @param parameters API parameters.
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns 
 	 */
@@ -173,7 +188,7 @@ export class Api {
 	 * 
 	 * @param parameters (modified in-place)
 	 */
-	private preprocessParameters(parameters: ApiParams) {
+	private preprocessParameters(parameters: ApiParams): void {
 		// Handle common MediaWiki API idioms for passing parameters
 		for (const key in parameters) {
 			// Multiple values are pipe-separated
@@ -212,8 +227,8 @@ export class Api {
 	 * }
 	 * ```
 	 * 
-	 * @param parameters 
-	 * @param options 
+	 * @param parameters API parameters.
+	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns 
 	 */
 	ajax(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
@@ -303,4 +318,149 @@ export class Api {
 		
 	}
 
+	/**
+	 * Post to API with the specified type of token. If we have no token, get one and try to post.
+	 * If we already have a cached token, try using that, and if the request fails using the cached token,
+	 * blank it out and start over. For example, to change a user option, you could do:
+	 * ```
+	 * 	new Api('ENDPOINT').postWithToken('csrf', {
+	 * 		action: 'options',
+	 * 		optionname: 'gender',
+	 * 		optionvalue: 'female'
+	 * 	});
+	 * ```
+	 * 
+	 * @param tokenType The name of the token, like `csrf`.
+	 * @param params API parameters.
+	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
+	 * @returns See {@link ajax}.
+	 */
+	postWithToken(tokenType: string, params: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
+		const assertParams = {
+			assert: params.assert,
+			assertuser: params.assertuser
+		};
+		return new Promise((resolve, reject) => {
+			this.getToken(tokenType, assertParams)
+			.then((token) => {
+				params.token = <string>token;
+				return this.post(params, options)
+				.then(resolve)
+				.catch((err: ApiResponseError) => {
+
+					// Error handler
+					if (err.error.code === 'badtoken' ) {
+						this.badToken(tokenType);
+						// Try again, once
+						params.token = void 0;
+						return this.getToken(tokenType, assertParams).then((t) => {
+							params.token = <string>t;
+							return this.post(params, options);
+						});
+					}
+
+					reject(err);
+					
+				});
+			}).catch(reject);
+		});
+	}
+
+	/**
+	 * Get a token for a certain action from the API.
+	 *
+	 * @param tokenType The name of the token, like `csrf`.
+	 * @param additionalParams Additional parameters for the API. When given a string, it's treated as the
+	 * 'assert' parameter.
+	 * @returns Received token. Can be a rejected Promise object on failure.
+	 */
+	getToken(tokenType: string, additionalParams?: ApiParams|string): Promise<string|ApiResponseError> {
+
+		// Do we have a cashed token?
+		tokenType = mapLegacyToken(tokenType);
+		const element = tokens[this.index];
+		const tokenName = tokenType + 'token';
+		const cashedToken = element && element[tokenName as keyof Token];
+		if (cashedToken) {
+			return Promise.resolve(cashedToken);
+		}
+
+		// Send an API request
+		if (typeof additionalParams === 'string') {
+			additionalParams = {assert: additionalParams};
+		}
+		const params = Object.assign(
+			{
+				meta: 'tokens',
+				type: '*'
+			},
+			additionalParams || {}
+		);
+		return new Promise((resolve, reject) => {
+			this.get(params)
+			.then((res) => {
+				const resToken: Token|undefined = res?.query?.tokens;
+				if (resToken) {
+					tokens[this.index] = resToken;
+					const token = resToken[tokenName as keyof Token];
+					if (token) {
+						resolve(token);
+					} else {
+						throw {
+							error: {
+								code: 'badnamedtoken',
+								info: 'Could not find a token named "' + tokenType + '" (check for typos?)'
+							}
+						};
+					}
+				} else {
+					throw {
+						error: {
+							code: 'ok-but-empty',
+							info: 'OK response but empty result'
+						}
+					};
+				}
+			}).catch(reject);
+		});
+	}
+
+	/**
+	 * Indicate that the cached token for a certain action of the API is bad.
+	 * 
+	 * Call this if you get a `badtoken` error when using the token returned by {@link getToken}.
+	 * You may also want to use {@link postWithToken} instead, which invalidates bad cached tokens
+	 * automatically.
+	 * 
+	 * @param tokenType The name of the token, like `csrf`.
+	 */
+	badToken(tokenType: string): void {
+		tokenType = mapLegacyToken(tokenType);
+		const tokenName = tokenType + 'token' as keyof Token;
+		const index = this.index;
+		if (tokens[index] && tokens[index]![tokenName]) {
+			tokens[index]![tokenName] = null;
+		}
+	}
+
+}
+
+function mapLegacyToken(action: string): string {
+	// Legacy types for backward-compatibility with API action=tokens.
+	const csrfActions = [
+		'edit',
+		'delete',
+		'protect',
+		'move',
+		'block',
+		'unblock',
+		'email',
+		'import',
+		'options'
+	];
+	if (csrfActions.includes(action)) {
+		console.log('[mwcc] Use of the "' + action + '" token is deprecated. Use "csrf" instead.');
+		return 'csrf';
+	}
+	return action;
 }
