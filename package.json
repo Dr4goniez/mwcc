@@ -1,0 +1,24 @@
+{
+  "name": "mwcc",
+  "version": "1.0.0",
+  "description": "A TypeScript framework for the MediaWiki API.",
+  "scripts": {
+    "test": "ts-node src/test.ts"
+  },
+  "keywords": [
+    "wikipedia",
+    "mediawiki"
+  ],
+  "author": "Dr4goniez",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.3"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.16.0",
+    "@typescript-eslint/parser": "^6.16.0",
+    "eslint": "^8.56.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
