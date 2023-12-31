@@ -84,19 +84,14 @@ export class MWCC {
 	readonly axios: AxiosInstance;
 
 	/**
-	 * A container of credentials.
-	 */
-	private tokens: ApiResponseQueryMetaTokens = {};
-
-	/**
 	 * An array of `AbortController`s used in {@link abort}.
 	 */
-	private aborts: AbortController[];
+	private aborts: AbortController[] = [];
 
 	/**
 	 * Whether the current user is anonymous.
 	 */
-	anon: boolean;
+	anon = true;
 
 	/**
 	 * Initialize a new `MWCC` instance to interact with the API of a particular MediaWiki site.
@@ -173,12 +168,6 @@ export class MWCC {
 		);
 		this.axios = wrapper(Axios.create(config)); // 'Infuse' jar support to the Axios instance
 
-		// Storage of API requests. This makes it possible to manually abort unfinished ones
-		this.aborts = [];
-
-		// User-related properties
-		this.anon = true;
-
 	}
 
 	/**
@@ -213,14 +202,16 @@ export class MWCC {
 			options,
 		} = initializer;
 		if (!apiUrl) {
-			throw new Error('[mwcc] No API endpoint is provided');
+			console.log(new Error('[mwcc] No API endpoint is provided'));
+			return null;
 		}
 		const pattern =
 			username && password ? 1 :
 			OAuth2AccessToken ? 2 :
 			OAuthCredentials ? 3 : 0;
 		if (!pattern) {
-			throw new Error('[mwcc] Required credentials are missing');
+			console.log(new Error('[mwcc] Required credentials are missing'));
+			return null;
 		}
 
 		// Get axios config
@@ -251,14 +242,23 @@ export class MWCC {
 		if (resLogin.error || !resLogin.login || resLogin.login.result !== 'Success') {
 			console.log('[mwcc] Login failed', resLogin);
 			return null;
-		} else {
-			console.log('[mwcc] Logged in as ' + username);
 		}
-
 		mwcc.anon = false;
+
+		// Get site and user info to set up MWCC.config
+		const resInfo = <ApiResponse>await mwcc.get({
+			meta: 'siteinfo|userinfo',
+			siprop: 'general|namespaces|namespacealiases',
+			uiprop: 'groups|rights|editcount'
+		});
+		console.log('[mwcc] Logged in as ' + username); // Defer this message until the info query is done
+		mwcc.initConfigData(resInfo);
+
 		return mwcc;
 
 	}
+
+	// ****************************** BASE REQUEST METHODS ******************************
 
 	/**
 	 * Abort all unfinished requests issued by this `MWCC` object.
@@ -484,6 +484,13 @@ export class MWCC {
 
 	}
 
+	// ****************************** TOKEN-RELATED METHODS ******************************
+
+	/**
+	 * A container of credentials.
+	 */
+	private tokens: ApiResponseQueryMetaTokens = {};
+
 	/**
 	 * Post to API with the specified type of token. If we have no token, get one and try to post.
 	 * If we already have a cached token, try using that, and if the request fails using the cached token,
@@ -609,8 +616,6 @@ export class MWCC {
 		}
 	}
 
-	// From mw.Api.plugin.edit
-
 	/**
 	 * Post to API with csrf token. If we have no token, get one and try to post. If we have a cached token
 	 * try using that, and if it fails, blank out the cached token and start over.
@@ -631,6 +636,8 @@ export class MWCC {
 	getEditToken(): Promise<string> {
 		return this.getToken('csrf');
 	}
+
+	// ****************************** EDIT HELPER METHODS ******************************
 
 	/**
 	 * Create a new page.
@@ -662,7 +669,7 @@ export class MWCC {
 		});
 	}
 
-	// From mw.Api.plugin.user
+	// ****************************** QUERY HELPER METHODS ******************************
 
 	/**
 	 * Get the current user's groups and rights.
@@ -697,6 +704,198 @@ export class MWCC {
 			console.log('[mwcc] Failed to fetch user information', err);
 			return null;
 		});
+	}
+
+	/**
+	 * Storage of configuration values. For typing reasons, all the properties are initialized
+	 * with temporary values (later updated by {@link initConfigData}).
+	 */
+	private configData = {
+		wgArticlePath: '\x01',
+		wgCaseSensitiveNamespaces: [NaN],
+		wgContentLanguage: '\x01',
+		wgContentNamespaces: [NaN],
+		// wgDBname: '\x01',
+		// wgExtraSignatureNamespaces: [NaN],
+		wgFormattedNamespaces: <Record<string, string>>{},
+		// wgGlobalGroups: ['\x01'],
+		wgLegalTitleChars: '\x01',
+		wgNamespaceIds: <Record<string, number>>{},
+		wgScript: '\x01',
+		wgScriptPath: '\x01',
+		wgServer: '\x01',
+		wgServerName: '\x01',
+		wgSiteName: '\x01',
+		wgUserEditCount: NaN,
+		wgUserGroups: ['\x01'],
+		wgUserId: NaN,
+		wgUserName: '\x01',
+		wgUserRights: ['\x01'],
+		wgVersion: '\x01',
+		wgWikiID: '\x01'
+	};
+
+	/**
+	 * Stores configuration values related to the site and the user.
+	 */
+	config = {
+
+		/**
+		 * Get a config value by name.
+		 *
+		 * @param configName
+		 * @returns `null` if not found.
+		 */
+		get: <K extends keyof typeof this.configData>(configName: K): typeof this.configData[K]|null => {
+			return this.validateConfigValue(configName, this.configData[configName]);
+		},
+
+		/**
+		 * Set a config value by name.
+		 *
+		 * @param configName
+		 * @param configValue
+		 * @returns Whether the value was successfully set.
+		 */
+		set: <K extends keyof typeof this.configData, V extends typeof this.configData[K]>(configName: K, configValue: V): boolean => {
+			const oldType = typeof this.configData[configName];
+			const newType = typeof configValue;
+			if (oldType !== 'undefined' && oldType === newType) { // Not checking array and null
+				this.configData[configName] = configValue;
+				return true;
+			}
+			return false;
+		},
+
+		/**
+		 * Check if a config with a given name exists.
+		 *
+		 * @param configName
+		 * @returns Can constantly return `false` if the config is not ready (must run {@link MWCC.init} beforehand).
+		 */
+		exists: <K extends keyof typeof this.configData>(configName: K): boolean => {
+			return this.validateConfigValue(configName, this.configData[configName]) !== null;
+		}
+
+	};
+
+	/**
+	 * Check if a config value is the initial one.
+	 *
+	 * @param _
+	 * @param val
+	 * @returns The checked value if it's not the initial one, or else `null`.
+	 */
+	private validateConfigValue<K extends keyof typeof this.configData, V extends typeof this.configData[K]>(_: K, val: V): V | null {
+		switch (typeof val) {
+			case 'string':
+				if (val !== '\x01') return val;
+				break;
+			case 'number':
+				if (!isNaN(val)) return val;
+				break;
+			case 'object':
+				if (Array.isArray(val)) {
+					switch (typeof val[0]) {
+						case 'undefined': // Value has been initialized with an empty array
+							return <V>val.slice();
+						case 'string':
+							if (val[0] !== '\x01') return <V>val.slice();
+							break;
+						case 'number':
+							if (!isNaN(val[0])) return <V>val.slice();
+					}
+				}
+		}
+		return null;
+	}
+
+	/**
+	 * Initialize the data of {@link config} when {@link init} has fetched site and user information successfully.
+	 * @param res
+	 * @returns
+	 */
+	private initConfigData(res: ApiResponse): void {
+
+		// Check for error
+		const query = res.query;
+		if (res.error || !query) {
+			console.log('[mwcc] Failed to initialize MWCC.config');
+			return;
+		}
+
+		/**
+		 * Helper function to set a value to the config.
+		 *
+		 * Attempts to set a value by name, and on success, returns `false`, and on failure, returns the config key.
+		 * The return value will be stored in an array, and we can get the names of the config whose value failed to
+		 * be set just by filtering the array with non-false values.
+		 *
+		 * @param configName
+		 * @param configValue If `undefined`, `false` is returned.
+		 * @returns
+		 */
+		const set = <K extends keyof typeof this.configData, V extends typeof this.configData[K]>(configName: K, configValue?: V): K|false => {
+			let failedConfig: K|false = configName;
+			if (configValue !== void 0) {
+				const success = this.config.set(configName, configValue);
+				if (success) failedConfig = false;
+			}
+			return failedConfig;
+		};
+
+		// Deal with data that need to be formatted
+		const wgCaseSensitiveNamespaces: number[] = [];
+		const wgContentNamespaces: number[] = [];
+		const wgFormattedNamespaces: Record<string, string> = {};
+		const wgNamespaceIds: Record<string, number> = {};
+		if (query.namespaces) {
+			for (const nsnumber in query.namespaces) {
+				const obj = query.namespaces[nsnumber];
+				if (obj.case === 'case-sensitive') {
+					wgCaseSensitiveNamespaces.push(parseInt(nsnumber));
+				} else if (obj.content) {
+					wgContentNamespaces.push(parseInt(nsnumber));
+				}
+				wgFormattedNamespaces[nsnumber] = obj.name;
+			}
+		}
+		if (query.namespacealiases) {
+			query.namespacealiases.forEach(({id, alias}) => {
+				wgNamespaceIds[alias.toLowerCase().replace(/ /g, '_')] = id;
+			});
+		}
+
+		// Set values
+		const valSetMap: (keyof typeof this.configData|false)[] = [
+			set('wgArticlePath', query?.general?.articlepath),
+			set('wgCaseSensitiveNamespaces', query?.namespaces && wgCaseSensitiveNamespaces),
+			set('wgContentLanguage', query?.general?.lang),
+			set('wgContentNamespaces', query?.namespaces && wgContentNamespaces),
+			// set('wgDBname', ),
+			// set('wgExtraSignatureNamespaces', ),
+			set('wgFormattedNamespaces', query?.namespaces && wgFormattedNamespaces),
+			// set('wgGlobalGroups', ),
+			set('wgLegalTitleChars', query?.general?.legaltitlechars),
+			set('wgNamespaceIds', query?.namespacealiases && wgNamespaceIds),
+			set('wgScript', query?.general?.script),
+			set('wgScriptPath', query?.general?.scriptpath),
+			set('wgServer', query?.general?.server),
+			set('wgServerName', query?.general?.servername),
+			set('wgSiteName', query?.general?.sitename),
+			set('wgUserEditCount', query?.userinfo?.editcount),
+			set('wgUserGroups', query?.userinfo?.groups),
+			set('wgUserId', query?.userinfo?.id),
+			set('wgUserName', query?.userinfo?.name),
+			set('wgUserRights', query?.userinfo?.rights),
+			set('wgVersion', query?.general?.generator?.replace(/^MediaWiki /, '')),
+			set('wgWikiID', query?.general?.wikiid)
+		];
+		const failed = valSetMap.filter(val => val !== false).join(', ');
+		if (failed) {
+			console.log('[mwcc] Failed to set config value(s): ' + failed);
+		}
+
 	}
 
 }
