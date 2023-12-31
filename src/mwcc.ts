@@ -24,15 +24,6 @@ import {
 } from './api_types';
 
 /**
- * A purely private container of credentials.
- */
-const tokens: ApiResponseQueryMetaTokens[] = [];
-/**
- * The number of `MWCC` instances that have been initialized.
- */
-let instanceIndex = 0;
-
-/**
  * The parameter to {@link MWCC.init}.
  */
 export interface Initializer {
@@ -93,9 +84,9 @@ export class MWCC {
 	readonly axios: AxiosInstance;
 
 	/**
-	 * The index number of the `MWCC` instance.
+	 * A container of credentials.
 	 */
-	private index: number;
+	private tokens: ApiResponseQueryMetaTokens = {};
 
 	/**
 	 * An array of `AbortController`s used in {@link abort}.
@@ -181,10 +172,6 @@ export class MWCC {
 			{jar: new CookieJar()}
 		);
 		this.axios = wrapper(Axios.create(config)); // 'Infuse' jar support to the Axios instance
-
-		// Set up an index for this MWCC instance used to retrieve cached tokens
-		this.index = (instanceIndex++);
-		tokens[this.index] = {};
 
 		// Storage of API requests. This makes it possible to manually abort unfinished ones
 		this.aborts = [];
@@ -559,9 +546,8 @@ export class MWCC {
 
 		// Do we have a cashed token?
 		tokenType = mapLegacyToken(tokenType);
-		const element = tokens[this.index];
 		const tokenName = tokenType + 'token' as keyof ApiResponseQueryMetaTokens;
-		const cashedToken = element && element[tokenName];
+		const cashedToken = this.tokens[tokenName];
 		if (cashedToken) {
 			return Promise.resolve(cashedToken);
 		}
@@ -582,7 +568,7 @@ export class MWCC {
 			.then((res) => {
 				const resToken = (<ApiResponse>res)?.query?.tokens;
 				if (resToken) {
-					tokens[this.index] = resToken;
+					this.tokens = resToken;
 					const token = resToken[tokenName];
 					if (token) {
 						resolve(token);
@@ -618,9 +604,8 @@ export class MWCC {
 	badToken(tokenType: string): void {
 		tokenType = mapLegacyToken(tokenType);
 		const tokenName = tokenType + 'token' as keyof ApiResponseQueryMetaTokens;
-		const index = this.index;
-		if (tokens[index] && tokens[index]![tokenName]) {
-			delete tokens[index]![tokenName];
+		if (this.tokens[tokenName]) {
+			delete this.tokens[tokenName];
 		}
 	}
 
