@@ -1,29 +1,32 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * **Attributions**
+ * 
+ * Some parts of the code are copied or adapted from the mediawiki.api module in MediaWiki core,
+ * which is released under the GNU GPL v2 license.
+ * 
+ * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/index3.html | mw.Api}
+ * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/edit2.html | mw.Api.plugin.edit}
+ * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/user.html | mw.Api.plugin.user}
+ * 
+ * @module
+ */
+
 import Axios, { AxiosRequestConfig, AxiosInstance } from 'axios';
 import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 
 import packageJson from '../package.json';
 
-/**
- * The structure of `response.query.tokens` in `action=query&meta=tokens&type=*`.
- * A `null` value means that the cashed token is expired (updated by {@link Api.badToken}).
- */
-interface Token {
-	createaccounttoken: string|null;
-	csrftoken: string|null;
-	deleteglobalaccounttoken: string|null;
-	logintoken: string|null;
-	patroltoken: string|null;
-	rollbacktoken: string|null;
-	setglobalaccountstatustoken: string|null;
-	userrightstoken: string|null;
-	watchtoken: string|null;
-}
+import {
+	ApiParams,
+	ApiResponse,
+	ApiResponseQueryMetaTokens
+} from './api_types';
+
 /**
  * A purely private container of credentials.
  */
-const tokens: (Token|null)[] = [];
+const tokens: ApiResponseQueryMetaTokens[] = [];
 /**
  * The number of `Api` instances that have been initialized.
  */
@@ -74,32 +77,7 @@ export interface Initializer {
 }
 
 /**
- * The JavaScript primitive types.
- */
-type primitive = string|number|bigint|boolean|null|undefined;
-/**
- * The API query parameters.
- */
-interface ApiParams {
-	[key: string]: primitive|primitive[];
-}
-/**
- * The object used in the `catch` block of `Promise`.
- */
-export interface ApiResponseError {
-	error: {
-		code: string;
-		info: string;
-		details?: any;
-	};
-}
-
-/**
  * An interface to interact with the {@link https://www.mediawiki.org/wiki/API:Main_page | MediaWiki Action API}.
- * 
- * Part of this class is credited to the developers of MediaWiki core.
- * @link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/index3.html
- * @link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/edit2.html
  */
 export class Api {
 
@@ -206,7 +184,7 @@ export class Api {
 
 		// Set up an index for this Api instance used to retrieve cached tokens
 		this.index = (instanceIndex++);
-		tokens[this.index] = null;
+		tokens[this.index] = {};
 
 		// Storage of API requests. This makes it possible to manually abort unfinished ones
 		this.aborts = [];
@@ -276,7 +254,7 @@ export class Api {
 		}
 
 		// Login
-		const resLogin = await api.post({
+		const resLogin = <ApiResponse>await api.post({
 			action: 'login',
 			lgname: username,
 			lgpassword: password,
@@ -314,7 +292,7 @@ export class Api {
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns See {@link ajax}.
 	 */
-	get(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
+	get(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<unknown> {
 		options.method = 'GET';
 		return this.ajax(parameters, options);
 	}
@@ -326,7 +304,7 @@ export class Api {
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns See {@link ajax}.
 	 */
-	post(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
+	post(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<unknown> {
 		options.method = 'POST';
 		return this.ajax(parameters, options);
 	}
@@ -356,18 +334,60 @@ export class Api {
 	/**
 	 * Perform the API call. This method sends a GET request by default.
 	 * 
+	 * **Default parameters**
+	 * 
+	 * Whether the API call is a GET request or a POST request, the following parameters are
+	 * used as the default parameters:
+	 * 
+	 * ```
+	 * {
+	 * 	action: 'query',
+	 * 	format: 'json',
+	 * 	formatversion: '2'
+	 * }
+	 * ```
+	 * 
+	 * These parameters are overridden if {@link parameters} (the first parameter of this method)
+	 * contain properties with overlapping names.
+	 * 
+	 * Note that AJAX methods of the `Api` class all work regardless of whether you are logged in,
+	 * and hence an edit attempt with {@link postWithToken}, for example, will succeed as an edit
+	 * by an anonymous user. If you want to ensure that you are logged in, use the
+	 * {@link https://www.mediawiki.org/w/api.php?action=help&modules=main#main:assert | assert }
+	 * parameter of the API:
+	 * 
+	 * ```
+	 * const api = new Api('https://test.wikipedia.org/w/api.php');
+	 * api.postWithToken('csrf', {
+	 * 	action: 'edit',
+	 * 	title: 'Wikipedia:Sandbox',
+	 * 	appendtext: '\n* Test. ~~~~',
+	 * 	summary: 'test',
+	 * 	assert: 'user'
+	 * })
+	 * .then(console.log)
+	 * .catch(console.log);
+	 * ```
+	 * 
+	 * This will fail if you are not logged in.
+	 * 
+	 * **Error handling**
+	 * 
 	 * If the return value is a rejected Promise object, it always contains an `error`
 	 * property with internal `code` and `info` properties.
+	 * 
 	 * ```
 	 * new Api('ENDPOINT').ajax({
 	 * 	// query parameters
 	 * }).then((res) => {
 	 * 	console.log(res);
 	 * }).catch((err) => {
-	 * 	console.log(err);
+	 * 	console.log(err); // "err.error" is always present
 	 * });
 	 * ```
+	 * 
 	 * If the code above reaches the `catch` block, the console output will be:
+	 * 
 	 * ```json
 	 * {
 	 * 	"error": {
@@ -382,7 +402,7 @@ export class Api {
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns 
 	 */
-	ajax(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
+	ajax(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<unknown> {
 
 		// Ensure that token parameter is last (per [[mw:API:Edit#Token]]).
 		let token = '';
@@ -494,7 +514,7 @@ export class Api {
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns See {@link ajax}.
 	 */
-	postWithToken(tokenType: string, params: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
+	postWithToken(tokenType: string, params: ApiParams, options: AxiosRequestConfig = {}): Promise<unknown> {
 		const assertParams = {
 			assert: params.assert,
 			assertuser: params.assertuser
@@ -505,10 +525,10 @@ export class Api {
 				params.token = token;
 				return this.post(params, options)
 				.then(resolve)
-				.catch((err: ApiResponseError) => {
+				.catch((err: ApiResponse) => {
 
 					// Error handler
-					if (err.error.code === 'badtoken' ) {
+					if (err.error?.code === 'badtoken' ) {
 						this.badToken(tokenType);
 						// Try again, once
 						params.token = void 0;
@@ -540,7 +560,7 @@ export class Api {
 		// Do we have a cashed token?
 		tokenType = mapLegacyToken(tokenType);
 		const element = tokens[this.index];
-		const tokenName = tokenType + 'token' as keyof Token;
+		const tokenName = tokenType + 'token' as keyof ApiResponseQueryMetaTokens;
 		const cashedToken = element && element[tokenName];
 		if (cashedToken) {
 			return Promise.resolve(cashedToken);
@@ -560,7 +580,7 @@ export class Api {
 		return new Promise((resolve, reject) => {
 			this.get(params)
 			.then((res) => {
-				const resToken: Token|undefined = res?.query?.tokens;
+				const resToken = (<ApiResponse>res)?.query?.tokens;
 				if (resToken) {
 					tokens[this.index] = resToken;
 					const token = resToken[tokenName];
@@ -597,10 +617,10 @@ export class Api {
 	 */
 	badToken(tokenType: string): void {
 		tokenType = mapLegacyToken(tokenType);
-		const tokenName = tokenType + 'token' as keyof Token;
+		const tokenName = tokenType + 'token' as keyof ApiResponseQueryMetaTokens;
 		const index = this.index;
 		if (tokens[index] && tokens[index]![tokenName]) {
-			tokens[index]![tokenName] = null;
+			delete tokens[index]![tokenName];
 		}
 	}
 
@@ -614,7 +634,7 @@ export class Api {
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns See {@link ajax}.
 	 */
-	postWithEditToken(params: ApiParams, options: AxiosRequestConfig = {}): Promise<any> {
+	postWithEditToken(params: ApiParams, options: AxiosRequestConfig = {}): Promise<unknown> {
 		return this.postWithToken('csrf', params, options);
 	}
 
@@ -625,6 +645,73 @@ export class Api {
 	 */
 	getEditToken(): Promise<string> {
 		return this.getToken('csrf');
+	}
+
+	/**
+	 * Create a new page.
+	 * 
+	 * Example:
+	 * ```
+	 * new Api('ENDPOINT').create('Sandbox',
+	 * 	{summary: 'Load sand particles.'},
+	 * 	'Sand.'
+	 * );
+	 * ```
+	 * @param title Page title.
+	 * @param params API parameters.
+	 * @param content Content of the page to create.
+	 * @param assertUser Whether to append `{assert: 'user'}` to the query parameters, defaulted to `false`.
+	 * @returns Raw API response as a resolved or rejected Promise object.
+	 */
+	create(title: string, params: ApiParams, content: string, assertUser = false): Promise<unknown> {
+		return new Promise((resolve, reject) => {
+			this.postWithEditToken(Object.assign({
+				action: 'edit',
+				title: String(title),
+				text: content,
+				createonly: true,
+				assert: assertUser && 'user'
+			}, params))
+			.then(resolve)
+			.catch(reject);
+		});
+	}
+
+	// From mw.Api.plugin.user
+
+	/**
+	 * Get the current user's groups and rights.
+	 * 
+	 * @param assertUser Whether to append `{assert: 'user'}` to the query parameters, defaulted to `false`.
+	 * @returns
+	 */
+	getUserInfo(assertUser = false) {
+		return this.get({
+			meta: 'userinfo',
+			uiprop: 'groups|rights',
+			assert: assertUser && 'user'
+		}).then((res) => {
+			const resUi = (<ApiResponse>res)?.query?.userinfo;
+			if (resUi) {
+				return resUi as {
+					id: number;
+					name: string;
+					anon?: boolean;
+					groups: string[];
+					rights: string[];
+				};
+			} else {
+				throw {
+					error: {
+						code: 'ok-but-empty',
+						info: 'OK response but empty result'
+					}
+				};
+			}
+		}).catch((err) => {
+			console.log('[mwcc] Failed to fetch user information', err);
+			return null;
+		});
 	}
 
 }
