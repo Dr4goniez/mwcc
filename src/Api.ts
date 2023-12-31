@@ -1,13 +1,13 @@
 /**
  * **Attributions**
- * 
+ *
  * Some parts of the code are copied or adapted from the mediawiki.api module in MediaWiki core,
  * which is released under the GNU GPL v2 license.
- * 
+ *
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/index3.html | mw.Api}
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/edit2.html | mw.Api.plugin.edit}
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/user.html | mw.Api.plugin.user}
- * 
+ *
  * @module
  */
 
@@ -120,7 +120,7 @@ export class Api {
 	 * .catch(console.log);
 	 * ```
 	 * For error handling in the `catch` block, see {@link ajax}.
-	 * 
+	 *
 	 * As with {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/#!/api/mw.Api | mw.Api} in the
 	 * front-end MediaWiki-core (MW 1.25 or later), multiple values for a parameter can be specified using
 	 * an array:
@@ -134,11 +134,11 @@ export class Api {
 	 * .then(console.log)
 	 * .catch(console.log);
 	 * ```
-	 * 
+	 *
 	 * Also as with MediaWiki-core (MW 1.26 or later), boolean values for API parameters can be specified
 	 * natively. Parameter values set to `false` or `undefined` will be omitted from the request, as required
 	 * by the API.
-	 * 
+	 *
 	 * Note that the query parameters default to `action=query&format=json&formatversion=2`. If you want to
 	 * reset these default values, pass an option initializer object as below:
 	 * ```
@@ -210,7 +210,7 @@ export class Api {
 
 	/**
 	 * Login to a wiki and initialize a new `Api` instance for the project.
-	 * 
+	 *
 	 * @param initializer Object for instance initialization.
 	 */
 	static async init(initializer: Initializer): Promise<Api|null> {
@@ -287,7 +287,7 @@ export class Api {
 
 	/**
 	 * Perform API GET request.
-	 * 
+	 *
 	 * @param parameters API parameters.
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns See {@link ajax}.
@@ -299,7 +299,7 @@ export class Api {
 
 	/**
 	 * Perform API POST request.
-	 * 
+	 *
 	 * @param parameters API parameters.
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
 	 * @returns See {@link ajax}.
@@ -311,10 +311,10 @@ export class Api {
 
 	/**
 	 * Massage parameters from the nice format we accept into a format suitable for the API.
-	 * 
+	 *
 	 * NOTE: A value of undefined/null in an array will be represented by Array#join()
 	 * as the empty string. Should we filter silently? Warn? Leave as-is?
-	 * 
+	 *
 	 * @param parameters (modified in-place)
 	 */
 	private preprocessParameters(parameters: ApiParams): void {
@@ -333,12 +333,12 @@ export class Api {
 
 	/**
 	 * Perform the API call. This method sends a GET request by default.
-	 * 
+	 *
 	 * **Default parameters**
-	 * 
+	 *
 	 * Whether the API call is a GET request or a POST request, the following parameters are
 	 * used as the default parameters:
-	 * 
+	 *
 	 * ```
 	 * {
 	 * 	action: 'query',
@@ -346,16 +346,16 @@ export class Api {
 	 * 	formatversion: '2'
 	 * }
 	 * ```
-	 * 
+	 *
 	 * These parameters are overridden if {@link parameters} (the first parameter of this method)
 	 * contain properties with overlapping names.
-	 * 
+	 *
 	 * Note that AJAX methods of the `Api` class all work regardless of whether you are logged in,
 	 * and hence an edit attempt with {@link postWithToken}, for example, will succeed as an edit
 	 * by an anonymous user. If you want to ensure that you are logged in, use the
 	 * {@link https://www.mediawiki.org/w/api.php?action=help&modules=main#main:assert | assert }
 	 * parameter of the API:
-	 * 
+	 *
 	 * ```
 	 * const api = new Api('https://test.wikipedia.org/w/api.php');
 	 * api.postWithToken('csrf', {
@@ -368,14 +368,14 @@ export class Api {
 	 * .then(console.log)
 	 * .catch(console.log);
 	 * ```
-	 * 
+	 *
 	 * This will fail if you are not logged in.
-	 * 
+	 *
 	 * **Error handling**
-	 * 
+	 *
 	 * If the return value is a rejected Promise object, it always contains an `error`
 	 * property with internal `code` and `info` properties.
-	 * 
+	 *
 	 * ```
 	 * new Api('ENDPOINT').ajax({
 	 * 	// query parameters
@@ -385,9 +385,9 @@ export class Api {
 	 * 	console.log(err); // "err.error" is always present
 	 * });
 	 * ```
-	 * 
+	 *
 	 * If the code above reaches the `catch` block, the console output will be:
-	 * 
+	 *
 	 * ```json
 	 * {
 	 * 	"error": {
@@ -397,10 +397,10 @@ export class Api {
 	 * 	}
 	 * }
 	 * ```
-	 * 
+	 *
 	 * @param parameters API parameters.
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
-	 * @returns 
+	 * @returns
 	 */
 	ajax(parameters: ApiParams, options: AxiosRequestConfig = {}): Promise<unknown> {
 
@@ -433,9 +433,9 @@ export class Api {
 			/**
 			 * The data sent by a POST request must be in either `application/x-www-form-urlencoded`
 			 * or `multipart/form-data` format (no support for `application/json`).
-			 * 
+			 *
 			 * @see https://www.mediawiki.org/wiki/API:Data_formats
-			 */ 
+			 */
 			const data = Object.assign(options.data || {}, this.axios.defaults.data, defaults, parameters);
 			if (token) data.token = token;
 			options.data = new URLSearchParams(data).toString();
@@ -494,7 +494,7 @@ export class Api {
 				}
 			});
 		});
-		
+
 	}
 
 	/**
@@ -508,7 +508,7 @@ export class Api {
 	 * 		optionvalue: 'female'
 	 * 	});
 	 * ```
-	 * 
+	 *
 	 * @param tokenType The name of the token, like `csrf`.
 	 * @param params API parameters.
 	 * @param options Optional {@link https://github.com/axios/axios | Axios request config options}.
@@ -541,7 +541,7 @@ export class Api {
 					}
 
 					reject(err);
-					
+
 				});
 			}).catch(reject);
 		});
@@ -608,11 +608,11 @@ export class Api {
 
 	/**
 	 * Indicate that the cached token for a certain action of the API is bad.
-	 * 
+	 *
 	 * Call this if you get a `badtoken` error when using the token returned by {@link getToken}.
 	 * You may also want to use {@link postWithToken} instead, which invalidates bad cached tokens
 	 * automatically.
-	 * 
+	 *
 	 * @param tokenType The name of the token, like `csrf`.
 	 */
 	badToken(tokenType: string): void {
@@ -649,7 +649,7 @@ export class Api {
 
 	/**
 	 * Create a new page.
-	 * 
+	 *
 	 * Example:
 	 * ```
 	 * new Api('ENDPOINT').create('Sandbox',
@@ -681,7 +681,7 @@ export class Api {
 
 	/**
 	 * Get the current user's groups and rights.
-	 * 
+	 *
 	 * @param assertUser Whether to append `{assert: 'user'}` to the query parameters, defaulted to `false`.
 	 * @returns
 	 */
