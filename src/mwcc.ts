@@ -723,16 +723,15 @@ export class MWCC {
 			return Promise.reject(resRev);
 		}
 		const resPages = resRev.query?.pages;
-		if (!resPages) {
+		let page;
+		if (!resPages || !(page = resPages[0])) {
 			return Promise.reject({
 				error: {
 					code: 'ok-but-empty',
 					info: 'OK response but empty result'
 				}
 			});
-		}
-		const page = resPages[0];
-		if (!page || page.invalidreason) {
+		} else if (page.invalidreason) {
 			return Promise.reject({
 				error: {
 					code: 'invalidtitle',
@@ -797,10 +796,11 @@ export class MWCC {
 	/**
 	 * Get the current user's groups and rights.
 	 *
-	 * @param assertUser Whether to append `{assert: 'user'}` to the query parameters, defaulted to `false`.
+	 * @param assertUser Whether to append `{assert: 'user'}` to the query parameters (default: `false`)
+	 * @param verbose Whether to output errors to the console, if any (default: `true`)
 	 * @returns
 	 */
-	getUserInfo(assertUser = false) {
+	getUserInfo(assertUser = false, verbose = true) {
 		return this.get({
 			meta: 'userinfo',
 			uiprop: 'groups|rights',
@@ -816,15 +816,81 @@ export class MWCC {
 					rights: string[];
 				};
 			} else {
-				throw {
+				return Promise.reject({
 					error: {
 						code: 'ok-but-empty',
 						info: 'OK response but empty result'
 					}
-				};
+				});
 			}
 		}).catch((err) => {
-			console.log('[mwcc] Failed to fetch user information', err);
+			if (verbose) console.log(err);
+			return null;
+		});
+	}
+
+	/**
+	 * Check if a title is a category.
+	 *
+	 * @param title
+	 * @param verbose Whether to output errors to the console, if any (default: `true`)
+	 * @returns `null` on failure
+	 */
+	isCategory(title: string, verbose = true): Promise<boolean|null> {
+		return this.get({
+			prop: 'categoryinfo',
+			titles: String(title),
+		}).then((res) => {
+			const resPages = (<ApiResponse>res).query?.pages;
+			return !!(resPages && resPages[0] && resPages[0].categoryinfo);
+		}).catch((err) => {
+			if (verbose) console.log(err);
+			return null;
+		});
+	}
+
+	// getCategoriesByPrefix(prefix: string)
+
+	/**
+	 * Get the categories that a particular page on the wiki belongs to.
+	 *
+	 * @param title
+	 * @param verbose Whether to output errors to the console, if any (default: `true`)
+	 * @returns `null` on failure
+	 */
+	getCategories(title: string, verbose = true): Promise<string[]|null> {
+		return this.get({
+			prop: 'categories',
+			titles: String(title),
+		}).then((res) => {
+			const resPages = (<ApiResponse>res).query?.pages;
+			let page, categories;
+			if (!resPages || !(page = resPages[0]) || !(categories = page.categories)) {
+				return Promise.reject({
+					error: {
+						code: 'ok-but-empty',
+						info: 'OK response but empty result'
+					}
+				});
+			} else if (page.invalidreason) {
+				return Promise.reject({
+					error: {
+						code: 'invalidtitle',
+						info: page.invalidreason
+					}
+				});
+			} else if (page.missing) {
+				return Promise.reject({
+					error: {
+						code: 'pagemissing',
+						info: 'The requested page does not exist'
+					}
+				});
+			} else {
+				return categories.map((cat) => cat.title);
+			}
+		}).catch((err) => {
+			if (verbose) console.log(err);
 			return null;
 		});
 	}

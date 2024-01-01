@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "A TypeScript framework for the MediaWiki API.",
   "scripts": {
-    "test": "ts-node src/test.ts"
+    "test": "ts-node src/test.ts",
+    "json": "ts-node src/json.ts"
   },
   "keywords": [
     "wikipedia",

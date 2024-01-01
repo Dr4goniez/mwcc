@@ -92,7 +92,12 @@ export interface ApiResponseQuery {
 	normalized?: ApiResponseNormalized[];
 	pageids?: string[];
 	pages?: ApiResponseQueryPages[];
-	protocols: string[];
+	protocols?: string[];
+	/** `redirects=true` */
+	redirects?: {
+		from: string;
+		to: string;
+	}[];
 	restrictions?: ApiResponseQueryMetaSiteinfoRestrictions;
 	rightsinfo?: ApiResponseQueryMetaSiteinfoRightsinfo;
 	showhooks?: ApiResponseQueryMetaSiteinfoShowhooks[];
@@ -106,40 +111,90 @@ export interface ApiResponseQuery {
 	tokens?: ApiResponseQueryMetaTokens;
 }
 
-export interface ApiResponseQueryPages { // Fully checked: prop=revisions
+export interface ApiResponseQueryPages {
+	// prop-independent properties
 	pageid?: number;
 	ns: number;
 	title: string;
 	invalidreason?: string;
 	invalid?: boolean;
 	missing?: boolean;
+	// prop-dependent properties
+	/** `prop=categories` */
+	categories?: ApiResponseQueryPropCategories[];
+	/** `prop=categoryinfo` */
+	categoryinfo?: ApiResponseQueryPropCategoryinfo;
+	/** `prop=cirrusbuilddoc` */
+	cirrusbuilddoc?: ApiResponseQueryPropCirrusbuilddoc;
+	/** `prop=cirrusbuilddoc` */
+	cirrusbuilddoc_metadata?: ApiResponseQueryPropCirrusbuilddoc2;
+	/** `prop=revisions` */
 	revisions?: ApiResponseQueryPagesRevisions[];
-	contentmodel?: string;
-	pagelanguage?: string;
-	pagelanguagehtmlcode?: string;
-	pagelanguagedir?: string;
-	touched?: string;
-	lastrevid?: number;
-	length?: number;
-	redirect?: boolean;
+	/** `prop=?` */
 	protection?: ApiResponseQueryPagesProtection[];
-	restrictiontypes?: string[];
-	watched?: boolean;
-	watchers?: number;
-	visitingwatchers?: number;
-	notificationtimestamp?: string;
-	talkid?: number;
-	associatedpage?: string;
-	fullurl?: string;
-	editurl?: string;
-	canonicalurl?: string;
-	readable?: boolean;
-	preload?: string;
-	displaytitle?: string;
-	varianttitles?: {
-		[key: string]: string;
+}
+
+export interface ApiResponseQueryPropCategories {
+	ns: number;
+	title: string;
+	sortkey?: string;
+	sortkeyprefix?: string;
+	timestamp?: string;
+	hidden?: boolean;
+}
+export interface ApiResponseQueryPropCategoryinfo {
+	size: number;
+	pages: number;
+	files: number;
+	subcats: number;
+	hidden: boolean;
+}
+
+export interface ApiResponseQueryPropCirrusbuilddoc {
+	version: number;
+	wiki: string;
+	page_id: number;
+	namespace: number;
+	namespace_text: string;
+	title: string;
+	timestamp: string;
+	create_timestamp: string;
+	redirect?: {
+		namespace: number;
+		title: string;
+	}[];
+	category?: string[];
+	external_link?: string[];
+	outgoing_link?: string[];
+	template?: string[];
+	text?: string;
+	source_text?: string;
+	text_bytes?: number;
+	content_model?: string;
+	/** [Needs update] */
+	coordinates?: unknown[];
+	wikibase_item?: string;
+	language?: string;
+	heading?: string[];
+	opening_text?: string|null;
+	auxiliary_text?: string[];
+	defaultsort?: string|null;
+	file_text?: string|null;
+	display_title?: string|null;
+}
+
+export interface ApiResponseQueryPropCirrusbuilddoc2 {
+	cluster_group: string;
+	noop_hints: {
+		version: string;
 	};
-	linkclasses?: string[];
+	size_limiter_stats: {
+		document: {
+			original_length: number;
+			new_length: number;
+		};
+	};
+	index_name: string;
 }
 
 export interface ApiResponseQueryPagesRevisions { // Fully checked except for deprecated properties

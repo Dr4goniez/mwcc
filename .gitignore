@@ -1,2 +1,5 @@
 src/test.ts
 src/my.ts
+src/json.ts
+src/test.json
+src/replacer.txt
