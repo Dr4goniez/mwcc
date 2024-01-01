@@ -6,17 +6,18 @@
  *
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/index3.html | mw.Api}
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/edit2.html | mw.Api.plugin.edit}
+ * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/messages.html#mw-Api-plugin-messages-method-getMessages | mw.Api.plugin.messages}
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/user.html | mw.Api.plugin.user}
  *
  * @module
  */
+/* eslint-disable @typescript-eslint/no-this-alias */
 
 import Axios, { AxiosRequestConfig, AxiosInstance } from 'axios';
 import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 
 import packageJson from '../package.json';
-
 import {
 	ApiParams,
 	ApiResponse,
@@ -24,53 +25,9 @@ import {
 } from './api_types';
 
 /**
- * The parameter to {@link MWCC.init}.
- */
-export interface Initializer {
-	/**
-	 * API endpoint as a full URL (e.g. `https://en.wikipedia.org/w/api.php`).
-	 */
-	apiUrl: string;
-	/**
-	 * The bot's username (if you use `action=login`).
-	 */
-	username?: string;
-	/**
-	 * The bot's password (if you use `action=login`).
-	 */
-	password?: string;
-	/**
-	 * OAuth access token (if you use OAuth 2 in Extension:OAuth).
-	 */
-	OAuth2AccessToken?: string;
-	/**
-	 * OAuth credentials (if you use OAuth 1.0a in Extension:OAuth).
-	 */
-	OAuthCredentials?: {
-		/** A 16-digit alphanumeric key. */
-		consumerToken: string;
-		/** A 20-digit alphanumeric key. */
-		consumerSecret: string;
-		/** A 16-digit alphanumeric key. */
-		accessToken: string;
-		/** A 20-digit alphanumeric key. */
-		accessSecret: string;
-	};
-	/**
-	 * An HTTP User-Agent header (`<client name>/<version> (<contact information>)`).
-	 * @see https://meta.wikimedia.org/wiki/User-Agent_policy
-	 */
-	userAgent?: string;
-	/**
-	 * Default {@link https://github.com/axios/axios | Axios request config options}.
-	 */
-	options?: AxiosRequestConfig;
-}
-
-/**
  * An interface to interact with the {@link https://www.mediawiki.org/wiki/API:Main_page | MediaWiki Action API}.
  */
-export class MWCC {
+export class MWCCStatic {
 
 	/**
 	 * The API endpoint. This must be included in the config of every HTTP request issued
@@ -79,7 +36,7 @@ export class MWCC {
 	readonly apiUrl: string;
 
 	/**
-	 * A unique Axios instance for an MWCC instance.
+	 * A unique Axios instance for an class instance.
 	 */
 	readonly axios: AxiosInstance;
 
@@ -92,6 +49,13 @@ export class MWCC {
 	 * Whether the current user is anonymous.
 	 */
 	anon = true;
+
+	/**
+	 * Return an apilimit for multivalue API parameters.
+	 */
+	get apilimit() {
+		return 50;
+	}
 
 	/**
 	 * Initialize a new `MWCC` instance to interact with the API of a particular MediaWiki site.
@@ -142,15 +106,15 @@ export class MWCC {
 
 		// Set up the API endpoint
 		if (!apiUrl) {
-			throw new Error('[mwcc] No endpoint is passed to the MWCC constructor');
+			throw new Error('[mwcc] No endpoint is passed to the ' + MWCCStatic.name + ' constructor');
 		} else {
 			this.apiUrl = apiUrl;
 		}
 
-		// Initialize an Axios instance for this MWCC instance
+		// Initialize an Axios instance for this MWCCStatic instance
 		const config = Object.assign(
 			{},
-			MWCC.defaultOptions,
+			MWCCStatic.defaultOptions,
 			options,
 			/**
 			 * Make it possible for the Axios instance to handle cookies and sessions. Without this,
@@ -185,89 +149,10 @@ export class MWCC {
 		responseEncoding: 'utf8'
 	};
 
-	/**
-	 * Login to a wiki and initialize a new `MWCC` instance for the project.
-	 *
-	 * @param initializer Object for instance initialization.
-	 */
-	static async init(initializer: Initializer): Promise<MWCC|null> {
-
-		// Check the initializer's properties
-		const {
-			apiUrl,
-			username,
-			password,
-			OAuth2AccessToken,
-			OAuthCredentials,
-			userAgent,
-			options,
-		} = initializer;
-		if (!apiUrl) {
-			console.log(new Error('[mwcc] No API endpoint is provided'));
-			return null;
-		}
-		const pattern =
-			username && password ? 1 :
-			OAuth2AccessToken ? 2 :
-			OAuthCredentials ? 3 : 0;
-		if (!pattern) {
-			console.log(new Error('[mwcc] Required credentials are missing'));
-			return null;
-		}
-
-		// Get axios config
-		const config = Object.assign({}, options || {});
-		if (userAgent) {
-			if (!config.headers) config.headers = {};
-			config.headers['User-Agent'] = userAgent;
-		}
-
-		// Create an MWCC instance
-		const mwcc = new MWCC(apiUrl, config);
-
-		// Fetch a login token
-		const token = await mwcc.getToken('login', {assert: void 0});
-		if (typeof token !== 'string') {
-			console.log('[mwcc] Login failed: No valid login token', token);
-			return null;
-		}
-
-		// Login
-		const resLogin = <ApiResponse>await mwcc.post({
-			action: 'login',
-			lgname: username,
-			lgpassword: password,
-			lgtoken: token,
-			assert: void 0
-		});
-		if (resLogin.error || !resLogin.login || resLogin.login.result !== 'Success') {
-			console.log('[mwcc] Login failed', resLogin);
-			return null;
-		}
-		mwcc.anon = false;
-
-		// Get site and user info to set up MWCC.config
-		const resInfo = <ApiResponse>await mwcc.get({
-			meta: 'tokens|siteinfo|userinfo',
-			type: '*',
-			siprop: 'general|namespaces|namespacealiases',
-			uiprop: 'groups|rights|editcount'
-		});
-		const newTokens = resInfo.query?.tokens; // Tokens for the anonymous request no longer work
-		mwcc.tokens = newTokens || {};
-		mwcc.initConfigData(resInfo);
-		let domain = mwcc.config.get('wgServerName') || '';
-		if (domain) domain = '@' + domain;
-		console.log('[mwcc] Logged in as ' + username + domain); // Defer this message until the info query is done
-
-		return mwcc;
-
-	}
-
 	// ****************************** BASE REQUEST METHODS ******************************
 
 	/**
-	 * Abort all unfinished requests issued by this `MWCC` object.
+	 * Abort all unfinished requests issued by this `MWCC` instance.
 	 */
 	abort(): void {
 		this.aborts.forEach((controller) => {
@@ -490,12 +375,161 @@ export class MWCC {
 
 	}
 
+	/**
+	 * Perform API query that is automatically continued (if the response has a `continue` property)
+	 * until the limit is reached.
+	 *
+	 * @param parameters API parameters
+	 * @param limit The maximum number of times to continue requests (default: `10`)
+	 * @returns An array of raw API responses
+	 */
+	continuedQuery(parameters: ApiParams, limit = 10): Promise<unknown[]> {
+
+		const _this = this;
+		const responses: unknown[] = [];
+		const req = (params: ApiParams, count: number): Promise<unknown[]> => {
+			return _this.get(params)
+				.then((res) => {
+					responses.push(res);
+					const resCont = (<ApiParams>res)?.continue;
+					if (resCont && count < limit) {
+						return req(Object.assign(params, resCont), count + 1);
+					} else {
+						return responses;
+					}
+				}).catch((err) => {
+					responses.push(err);
+					return responses;
+				});
+		};
+
+		return req(parameters, 1);
+
+	}
+
+	/**
+	 * Perform API query with a multi-value parameter, for which the API has a "ceiling" number.
+	 *
+	 * For example:
+	 *
+	 * ```
+	 * {
+	 * 	action: 'query',
+	 * 	titles: 'A|B|C|D|...', // This parameter is subject to the apilimit of 500 or 50
+	 * 	formatversion: '2'
+	 * }
+	 * ```
+	 *
+	 * Pass the multi-value field as an array, and then this method sends multiple API requests
+	 * by splicing it in accordance with the user's apilimit (`500` for bots, `50` otherwise).
+	 *
+	 * It is also required to pass the name of the field to the second parameter of this method
+	 * (if the request parameters have more than one multi-value field, an array can be passed
+	 * instead of a string).
+	 *
+	 * @param parameters API parameters
+	 * @param fields The name(s) of the multi-value field
+	 * @param options Optional settings for the method
+	 * @param options.apilimit Optional specification of the apilimit (default: `500/50`). The `**limit`
+	 * parameter, if any, is automatically set to `max` if this parameter has the default value. It also
+	 * accepts a value like `1`, in cases such as
+	 * {@link https://www.mediawiki.org/w/api.php?action=help&modules=query%2Bblocks | list=blocks} with
+	 * the `bkip` parameter (which only allows one IP to be queried in one API call).
+	 * @param options.verbose Whether to output internal errors to the console (default: `true`)
+	 * @returns Always resolves an array of raw API responses. If the method rejects, the return value is
+	 * an object in the same way as in {@link ajax}.
+	 * @throws When:
+	 * - there's a multi-value field with a non-array
+	 * - `fields` is empty
+	 * - there's no multi-value field corresponding to the specified field name(s)
+	 * - there are multiple multi-value fields but the relevant arrays are not identical
+	 */
+	massQuery(parameters: ApiParams, fields: string|string[], options: {apilimit?: number, verbose?: boolean} = {}): Promise<unknown[]> {
+
+		// Initialize variables
+		const apilimit = typeof options.apilimit === 'number' ? options.apilimit : this.apilimit;
+		const verbose = options.verbose === void 0 ? true : !!options.verbose;
+		parameters = Object.assign({}, parameters);
+		fields = (Array.isArray(fields) ? fields : [fields]).filter((v) => v);
+
+		// Unflat multi-value field arrays into one array to check equality
+		const nonArrayBatchParams: string[] = [];
+		const fieldValues = Object.keys(parameters).reduce((acc: string[][], key) => {
+			if (fields.includes(key)) {
+				const val = parameters[key];
+				if (Array.isArray(val)) {
+					acc.push(val.map((v) => String(v))); // Coerce string type to multi-value field values
+				} else {
+					nonArrayBatchParams.push('"' + key + '"');
+				}
+			} else if (/limit$/.test(key) && (apilimit === 500 || apilimit === 50)) {
+				// If this is a '**limit' parameter and the value is the default one, set it to 'max'
+				parameters[key] = 'max';
+			}
+			return acc;
+		}, []);
+		if (nonArrayBatchParams.length) {
+			return Promise.reject({
+				error: {
+					code: 'nonarray-exception',
+					info: 'The value(s) for ' + nonArrayBatchParams.join(', ') + ' must be arrays'
+				}
+			});
+		} else if (!fields.length) {
+			return Promise.reject({
+				error: {
+					code: 'emptyfield',
+					info: 'The "fields" parameter is empty'
+				}
+			});
+		} else if (!fieldValues.length) {
+			return Promise.reject({
+				error: {
+					code: 'nomultivalue',
+					info: 'There\'s no multi-value field (check for typos in parameter keys?)'
+				}
+			});
+		} else if (
+			// If there are multiple multi-value fields, all of them must have the same array
+			fieldValues.length > 1 &&
+			!fieldValues.slice(1).every((arr) => fieldValues[0].length === arr.length && fieldValues[0].every((el, i) => arr[i] === el))
+		) {
+			return Promise.reject({
+				error: {
+					code: 'nonindentical-arrays',
+					info: 'The multi-value fields must all have the same array'
+				}
+			});
+		}
+
+		// Check for an empty multi-value (this is not an error)
+		const batchArray = fieldValues[0];
+		if (!batchArray.length) {
+			if (verbose) console.log('[mwcc] An empty array has been passed for the batch operation.');
+			return Promise.resolve([]);
+		}
+
+		// Send API requests
+		const result: Promise<unknown>[] = [];
+		while (batchArray.length) {
+			const multiValue = batchArray.splice(0, apilimit).join('|');
+			const params = {...parameters};
+			for (const key of fields) {
+				params[key] = multiValue;
+			}
+			result.push(this.post(params).then(res => res).catch(err => err));
+		}
+
+		return Promise.all(result);
+
+	}
+
 	// ****************************** TOKEN-RELATED METHODS ******************************
 
 	/**
 	 * A container of credentials.
 	 */
-	private tokens: ApiResponseQueryMetaTokens = {};
+	protected tokens: ApiResponseQueryMetaTokens = {};
 
 	/**
 	 * Post to API with the specified type of token. If we have no token, get one and try to post.
@@ -895,197 +929,29 @@ export class MWCC {
 		});
 	}
 
-	/**
-	 * Storage of configuration values. For typing reasons, all the properties are initialized
-	 * with temporary values (later updated by {@link initConfigData}).
-	 */
-	private configData = {
-		wgArticlePath: '\x01',
-		wgCaseSensitiveNamespaces: [NaN],
-		wgContentLanguage: '\x01',
-		wgContentNamespaces: [NaN],
-		// wgDBname: '\x01',
-		// wgExtraSignatureNamespaces: [NaN],
-		wgFormattedNamespaces: <Record<string, string>>{},
-		// wgGlobalGroups: ['\x01'],
-		wgLegalTitleChars: '\x01',
-		wgNamespaceIds: <Record<string, number>>{},
-		wgScript: '\x01',
-		wgScriptPath: '\x01',
-		wgServer: '\x01',
-		wgServerName: '\x01',
-		wgSiteName: '\x01',
-		wgUserEditCount: NaN,
-		wgUserGroups: ['\x01'],
-		wgUserId: NaN,
-		wgUserName: '\x01',
-		wgUserRights: ['\x01'],
-		wgVersion: '\x01',
-		wgWikiID: '\x01'
-	};
-
-	/**
-	 * Stores configuration values related to the site and the user.
-	 */
-	config = {
-
-		/**
-		 * Get a config value by name.
-		 *
-		 * @param configName
-		 * @returns `null` if not found.
-		 */
-		get: <K extends keyof typeof this.configData>(configName: K): typeof this.configData[K]|null => {
-			return this.validateConfigValue(configName, this.configData[configName]);
-		},
-
-		/**
-		 * Set a config value by name.
-		 *
-		 * @param configName
-		 * @param configValue
-		 * @returns Whether the value was successfully set.
-		 */
-		set: <K extends keyof typeof this.configData, V extends typeof this.configData[K]>(configName: K, configValue: V): boolean => {
-			const oldType = typeof this.configData[configName];
-			const newType = typeof configValue;
-			if (oldType !== 'undefined' && oldType === newType) { // Not checking array and null
-				this.configData[configName] = configValue;
-				return true;
-			}
-			return false;
-		},
-
-		/**
-		 * Check if a config with a given name exists.
-		 *
-		 * @param configName
-		 * @returns Can constantly return `false` if the config is not ready (must run {@link MWCC.init} beforehand).
-		 */
-		exists: <K extends keyof typeof this.configData>(configName: K): boolean => {
-			return this.validateConfigValue(configName, this.configData[configName]) !== null;
-		}
-
-	};
-
-	/**
-	 * Check if a config value is the initial one.
-	 *
-	 * @param _
-	 * @param val
-	 * @returns The checked value if it's not the initial one, or else `null`.
-	 */
-	private validateConfigValue<K extends keyof typeof this.configData, V extends typeof this.configData[K]>(_: K, val: V): V | null {
-		switch (typeof val) {
-			case 'string':
-				if (val !== '\x01') return val;
-				break;
-			case 'number':
-				if (!isNaN(val)) return val;
-				break;
-			case 'object':
-				if (Array.isArray(val)) {
-					switch (typeof val[0]) {
-						case 'undefined': // Value has been initialized with an empty array
-							return <V>val.slice();
-						case 'string':
-							if (val[0] !== '\x01') return <V>val.slice();
-							break;
-						case 'number':
-							if (!isNaN(val[0])) return <V>val.slice();
-					}
-				}
-		}
-		return null;
-	}
-
-	/**
-	 * Initialize the data of {@link config} when {@link init} has fetched site and user information successfully.
-	 * @param res
-	 * @returns
-	 */
-	private initConfigData(res: ApiResponse): void {
-
-		// Check for error
-		const query = res.query;
-		if (res.error || !query) {
-			console.log('[mwcc] Failed to initialize MWCC.config');
-			return;
-		}
-
-		/**
-		 * Helper function to set a value to the config.
-		 *
-		 * Attempts to set a value by name, and on success, returns `false`, and on failure, returns the config key.
-		 * The return value will be stored in an array, and we can get the names of the config whose value failed to
-		 * be set just by filtering the array with non-false values.
-		 *
-		 * @param configName
-		 * @param configValue If `undefined`, `false` is returned.
-		 * @returns
-		 */
-		const set = <K extends keyof typeof this.configData, V extends typeof this.configData[K]>(configName: K, configValue?: V): K|false => {
-			let failedConfig: K|false = configName;
-			if (configValue !== void 0) {
-				const success = this.config.set(configName, configValue);
-				if (success) failedConfig = false;
-			}
-			return failedConfig;
-		};
-
-		// Deal with data that need to be formatted
-		const wgCaseSensitiveNamespaces: number[] = [];
-		const wgContentNamespaces: number[] = [];
-		const wgFormattedNamespaces: Record<string, string> = {};
-		const wgNamespaceIds: Record<string, number> = {};
-		if (query.namespaces) {
-			for (const nsnumber in query.namespaces) {
-				const obj = query.namespaces[nsnumber];
-				if (obj.case === 'case-sensitive') {
-					wgCaseSensitiveNamespaces.push(parseInt(nsnumber));
-				} else if (obj.content) {
-					wgContentNamespaces.push(parseInt(nsnumber));
-				}
-				wgFormattedNamespaces[nsnumber] = obj.name;
-			}
-		}
-		if (query.namespacealiases) {
-			query.namespacealiases.forEach(({id, alias}) => {
-				wgNamespaceIds[alias.toLowerCase().replace(/ /g, '_')] = id;
-			});
-		}
-
-		// Set values
-		const valSetMap: (keyof typeof this.configData|false)[] = [
-			set('wgArticlePath', query?.general?.articlepath),
-			set('wgCaseSensitiveNamespaces', query?.namespaces && wgCaseSensitiveNamespaces),
-			set('wgContentLanguage', query?.general?.lang),
-			set('wgContentNamespaces', query?.namespaces && wgContentNamespaces),
-			// set('wgDBname', ),
-			// set('wgExtraSignatureNamespaces', ),
-			set('wgFormattedNamespaces', query?.namespaces && wgFormattedNamespaces),
-			// set('wgGlobalGroups', ),
-			set('wgLegalTitleChars', query?.general?.legaltitlechars),
-			set('wgNamespaceIds', query?.namespacealiases && wgNamespaceIds),
-			set('wgScript', query?.general?.script),
-			set('wgScriptPath', query?.general?.scriptpath),
-			set('wgServer', query?.general?.server),
-			set('wgServerName', query?.general?.servername),
-			set('wgSiteName', query?.general?.sitename),
-			set('wgUserEditCount', query?.userinfo?.editcount),
-			set('wgUserGroups', query?.userinfo?.groups),
-			set('wgUserId', query?.userinfo?.id),
-			set('wgUserName', query?.userinfo?.name),
-			set('wgUserRights', query?.userinfo?.rights),
-			set('wgVersion', query?.general?.generator?.replace(/^MediaWiki /, '')),
-			set('wgWikiID', query?.general?.wikiid)
-		];
-		const failed = valSetMap.filter(val => val !== false).join(', ');
-		if (failed) {
-			console.log('[mwcc] Failed to set config value(s): ' + failed);
-		}
-
-	}
+	// login
+	// assertCurrentUser
+	// chunkedUpload
+	// chunkedUploadToStash
+	// finishUploadToStash
+	// getErrorMessage
+	// getFirstKey(
+	// getMessages(
+	// loadMessages
+	// loadMessagesIfMissing
+	// parse(
+	// retry
+	// rollback
+	// saveOption
+	// saveOptions
+	// slice
+	// unwatch(
+	// upload
+	// uploadChunk
+	// uploadFromStash
+	// uploadToStash
+	// uploadWithFormData
+	// watch
 
 }
 

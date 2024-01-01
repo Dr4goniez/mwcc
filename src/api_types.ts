@@ -68,6 +68,7 @@ export interface ApiResponseLogin {
 // ************************************ action=query ************************************
 
 export interface ApiResponseQuery {
+	allmessages?: ApiResponseQueryMetaAllmessages[];
 	autocreatetempuser?: ApiResponseQueryMetaSiteinfoAutocreatetempuser;
 	badrevids?: {
 		[key: string]: {
@@ -234,6 +235,15 @@ export interface ApiResponseQueryPagesProtection {
 	type: string;
 	level: string;
 	expiry: string;
+}
+
+// ************************************ action=query&meta=allmessages ************************************
+
+export interface ApiResponseQueryMetaAllmessages {
+	name: string;
+	normalizedname: string;
+	content: string;
+	missing?: boolean;
 }
 
 // ************************************ action=query&meta=siteinfo (complete) ************************************
