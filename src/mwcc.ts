@@ -176,7 +176,8 @@ export class MWCC {
 	static readonly defaultOptions: AxiosRequestConfig = {
 		method: 'GET',
 		headers: {
-			'User-Agent': 'mwcc/' + packageJson.version
+			'User-Agent': 'mwcc/' + packageJson.version,
+			'Content-Type': 'application/x-www-form-urlencoded'
 		},
 		timeout: 30 * 1000, // 30 seconds
 		withCredentials: true, // Related to cookie handling
@@ -247,12 +248,17 @@ export class MWCC {
 
 		// Get site and user info to set up MWCC.config
 		const resInfo = <ApiResponse>await mwcc.get({
-			meta: 'siteinfo|userinfo',
+			meta: 'tokens|siteinfo|userinfo',
+			type: '*',
 			siprop: 'general|namespaces|namespacealiases',
 			uiprop: 'groups|rights|editcount'
 		});
-		console.log('[mwcc] Logged in as ' + username); // Defer this message until the info query is done
+		const newTokens = resInfo.query?.tokens; // Tokens for the anonymous request no longer work
+		mwcc.tokens = newTokens || {};
 		mwcc.initConfigData(resInfo);
+		let domain = mwcc.config.get('wgServerName') || '';
+		if (domain) domain = '@' + domain;
+		console.log('[mwcc] Logged in as ' + username + domain); // Defer this message until the info query is done
 
 		return mwcc;
 
@@ -425,7 +431,7 @@ export class MWCC {
 			 */
 			const data = Object.assign(options.data || {}, this.axios.defaults.data, defaults, parameters);
 			if (token) data.token = token;
-			options.data = new URLSearchParams(data).toString();
+			options.data = new URLSearchParams(data);
 
 		}
 		options.url = this.apiUrl; // This is required for every request even if we use an Axios **instance**
@@ -522,16 +528,15 @@ export class MWCC {
 				.catch((err: ApiResponse) => {
 
 					// Error handler
-					if (err.error?.code === 'badtoken' ) {
+					if (err.error?.code === 'badtoken') {
 						this.badToken(tokenType);
 						// Try again, once
 						params.token = void 0;
 						return this.getToken(tokenType, assertParams)
 						.then((t) => {
 							params.token = t;
-							return this.post(params, options);
-						})
-						.catch(reject);
+							return this.post(params, options).then(resolve).catch(reject);
+						}).catch(reject);
 					}
 
 					reject(err);
@@ -653,7 +658,7 @@ export class MWCC {
 	 * @param params API parameters.
 	 * @param content Content of the page to create.
 	 * @param assertUser Whether to append `{assert: 'user'}` to the query parameters, defaulted to `false`.
-	 * @returns Raw API response as a resolved or rejected Promise object.
+	 * @returns See {@link ajax}.
 	 */
 	create(title: string, params: ApiParams, content: string, assertUser = false): Promise<unknown> {
 		return new Promise((resolve, reject) => {
@@ -667,6 +672,124 @@ export class MWCC {
 			.then(resolve)
 			.catch(reject);
 		});
+	}
+
+	/**
+	 * Edit an existing page. (To create a new page, use {@link create} instead.)
+	 *
+	 * This method first fetches the current revision of the specified page. Then, the timestamp and
+	 * the content are passed to the callback function, which should in turn provide parameters for
+	 * `action=edit`.
+	 *
+	 * Simple transformation:
+	 *
+	 * ```
+	 * mwcc.edit('Sandbox', (revision) => revision.content.replace('foo', 'bar'));
+	 * ```
+	 *
+	 * If the callback function returns a string (or more precisely a non-object) as above, that will be
+	 * used in the `text` parameter of the edit request.
+	 *
+	 * If the return value is an object, it will be merged into the POST data:
+	 *
+	 * ```
+	 * mwcc.edit('Sandbox', (revision) => {
+	 * 	return {
+	 * 		text: revision.content.replace('foo', 'bar'),
+	 * 		summary: 'Replace "foo" with "bar".',
+	 * 		assert: 'bot',
+	 * 		minor: true
+	 * 	};
+	 * });
+	 * ```
+	 *
+	 * Note further that a promisified return is also accepted.
+	 *
+	 * @param title Page title
+	 * @param transform Callback that prepares the edit and returns a string or object (can be promisified)
+	 * @returns See {@link ajax}.
+	 */
+	async edit(title: string, transform: (obj: {timestamp: string, content: string}) => string|ApiParams|Promise<string>|Promise<ApiParams>): Promise<unknown> {
+
+		title = String(title);
+		const resRev = <ApiResponse>await this.get({
+			prop: 'revisions',
+			rvprop: 'content|timestamp',
+			rvslots: 'main',
+			titles: title,
+			curtimestamp: true
+		});
+		if (resRev.error) {
+			return Promise.reject(resRev);
+		}
+		const resPages = resRev.query?.pages;
+		if (!resPages) {
+			return Promise.reject({
+				error: {
+					code: 'ok-but-empty',
+					info: 'OK response but empty result'
+				}
+			});
+		}
+		const page = resPages[0];
+		if (!page || page.invalidreason) {
+			return Promise.reject({
+				error: {
+					code: 'invalidtitle',
+					info: page.invalidreason
+				}
+			});
+		} else if (page.missing) {
+			return Promise.reject({
+				error: {
+					code: 'nocreate-missing',
+					info: 'The requested page does not exist'
+				}
+			});
+		}
+		const revision = page.revisions && page.revisions[0];
+		const basetimestamp = revision?.timestamp;
+		const starttimestamp = resRev.curtimestamp!; // Unlikely to be missing
+		const content = revision?.slots?.main.content;
+		if (!revision || !basetimestamp || content === void 0) {
+			return Promise.reject({
+				error: {
+					code: 'ok-but-empty',
+					info: 'OK response but empty result'
+				}
+			});
+		}
+
+		const params = await transform({timestamp: basetimestamp, content});
+		const editParams = typeof params === 'object' ? params : {text: String(params)};
+		return await this.postWithEditToken(Object.assign({
+			action: 'edit',
+			title,
+			assert: !this.anon ? 'user' : void 0, // Protect against errors and conflicts
+			basetimestamp,
+			starttimestamp,
+			nocreate: true
+		}, editParams));
+
+	}
+
+	/**
+	 * Create a new section on a page.
+	 *
+	 * @param title Target page
+	 * @param header Section title
+	 * @param content Section content
+	 * @param additionalParams Additional parameters for the API
+	 * @returns See {@link ajax}.
+	 */
+	newSection(title: string, header: string, content: string, additionalParams: ApiParams = {}): Promise<unknown> {
+		return this.postWithEditToken(Object.assign({
+			action: 'edit',
+			section: 'new',
+			title: String(title),
+			sectiontitle: header,
+			text: content
+		}), additionalParams);
 	}
 
 	// ****************************** QUERY HELPER METHODS ******************************

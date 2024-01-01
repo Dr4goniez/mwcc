@@ -15,10 +15,30 @@ export interface ApiParams {
 }
 
 export interface ApiResponse {
+	// General properties
 	batchcomplete?: boolean;
+	continue?: {
+		[key: string]: string;
+	};
+	curtimestamp?: string;
+	error?: ApiResponseError;
+	errorlang?: string;
+	limits?: {
+		[key: string]: number;
+	};
+	normalized?: ApiResponseNormalized[];
+	requestid?: string;
+	servedby?: string;
+	uselang?: string;
+	warnings?: {
+		[key: string]: {
+			warnings: string;
+		};
+	};
+	// Action-specific properties
+	// edit?: ApiResponseEdit;
 	login?: ApiResponseLogin;
 	query?: ApiResponseQuery;
-	error?: ApiResponseError;
 }
 
 export interface ApiResponseError {
@@ -26,6 +46,12 @@ export interface ApiResponseError {
 	info: string;
 	docref?: string;
 	details?: any; // script-internal
+}
+
+export interface ApiResponseNormalized {
+	fromencoded?: boolean;
+	from: string;
+	to: string;
 }
 
 // ************************************ action=login ************************************
@@ -43,6 +69,12 @@ export interface ApiResponseLogin {
 
 export interface ApiResponseQuery {
 	autocreatetempuser?: ApiResponseQueryMetaSiteinfoAutocreatetempuser;
+	badrevids?: {
+		[key: string]: {
+			revid: number;
+			missing: boolean;
+		};
+	};
 	dbrepllag?: ApiResponseQueryMetaSiteinfoDbrepllag[];
 	defaultoptions?: ApiResponseQueryMetaSiteinfoDefaultoptions;
 	extensions?: ApiResponseQueryMetaSiteinfoExtensions[];
@@ -57,6 +89,9 @@ export interface ApiResponseQuery {
 	magicwords?: ApiResponseQueryMetaSiteinfoMagicwords[];
 	namespacealiases?: ApiResponseQueryMetaSiteinfoNamespacealiases[];
 	namespaces?: ApiResponseQueryMetaSiteinfoNamespaces;
+	normalized?: ApiResponseNormalized[];
+	pageids?: string[];
+	pages?: ApiResponseQueryPages[];
 	protocols: string[];
 	restrictions?: ApiResponseQueryMetaSiteinfoRestrictions;
 	rightsinfo?: ApiResponseQueryMetaSiteinfoRightsinfo;
@@ -69,6 +104,81 @@ export interface ApiResponseQuery {
 	variables?: string[];
 	userinfo?: ApiResponseQueryMetaUserinfo;
 	tokens?: ApiResponseQueryMetaTokens;
+}
+
+export interface ApiResponseQueryPages { // Fully checked: prop=revisions
+	pageid?: number;
+	ns: number;
+	title: string;
+	invalidreason?: string;
+	invalid?: boolean;
+	missing?: boolean;
+	revisions?: ApiResponseQueryPagesRevisions[];
+	contentmodel?: string;
+	pagelanguage?: string;
+	pagelanguagehtmlcode?: string;
+	pagelanguagedir?: string;
+	touched?: string;
+	lastrevid?: number;
+	length?: number;
+	redirect?: boolean;
+	protection?: ApiResponseQueryPagesProtection[];
+	restrictiontypes?: string[];
+	watched?: boolean;
+	watchers?: number;
+	visitingwatchers?: number;
+	notificationtimestamp?: string;
+	talkid?: number;
+	associatedpage?: string;
+	fullurl?: string;
+	editurl?: string;
+	canonicalurl?: string;
+	readable?: boolean;
+	preload?: string;
+	displaytitle?: string;
+	varianttitles?: {
+		[key: string]: string;
+	};
+	linkclasses?: string[];
+}
+
+export interface ApiResponseQueryPagesRevisions { // Fully checked except for deprecated properties
+	revid?: number;
+	parentid?: number;
+	minor?: boolean;
+	user?: string;
+	userid?: number;
+	timestamp?: string;
+	size?: number;
+	sha1?: string;
+	roles?: string[];
+	slots?: {
+		main: { // [slot: string]
+			size?: number;
+			sha1?: string;
+			contentmodel?: string;
+			contentformat?: string;
+			content?: string;
+			badcontentformat?: boolean;
+		};
+	};
+	/** @deprecated Specify the `rvslots` parameter. */
+	contentmodel?: string;
+	/** @deprecated Use `action=expandtemplates` or `action=parse` instead. */
+	parsetree?: string;
+	/** @deprecated Specify the `rvslots` parameter. */
+	contentformat?: string;
+	/** @deprecated Specify the `rvslots` parameter. */
+	content?: string;
+	comment?: string;
+	parsedcomment?: string;
+	tags?: string[];
+}
+
+export interface ApiResponseQueryPagesProtection {
+	type: string;
+	level: string;
+	expiry: string;
 }
 
 // ************************************ action=query&meta=siteinfo (complete) ************************************
