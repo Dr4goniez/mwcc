@@ -148,6 +148,12 @@ export class MWCC extends MWCCStatic {
 
 	}
 
+	// rollback		// assert=user
+	// saveOption	// assert=user
+	// saveOptions	// assert=user
+	// watch		// assert=user
+	// unwatch		// assert=user
+
 	/**
 	 * Storage of configuration values. For typing reasons, all the properties are initialized
 	 * with temporary values (later updated by {@link initConfigData}).
@@ -157,10 +163,7 @@ export class MWCC extends MWCCStatic {
 		wgCaseSensitiveNamespaces: [NaN],
 		wgContentLanguage: '\x01',
 		wgContentNamespaces: [NaN],
-		// wgDBname: '\x01',
-		// wgExtraSignatureNamespaces: [NaN],
 		wgFormattedNamespaces: <Record<string, string>>{},
-		// wgGlobalGroups: ['\x01'],
 		wgLegalTitleChars: '\x01',
 		wgNamespaceIds: <Record<string, number>>{},
 		wgScript: '\x01',

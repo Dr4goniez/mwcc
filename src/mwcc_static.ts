@@ -7,6 +7,7 @@
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/index3.html | mw.Api}
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/edit2.html | mw.Api.plugin.edit}
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/messages.html#mw-Api-plugin-messages-method-getMessages | mw.Api.plugin.messages}
+ * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/parse.html#mw-Api-plugin-parse-method-parse | mw.Api.plugin.parse}
  * - {@link https://doc.wikimedia.org/mediawiki-core/REL1_41/js/source/user.html | mw.Api.plugin.user}
  *
  * @module
@@ -929,29 +930,91 @@ export class MWCCStatic {
 		});
 	}
 
+	/**
+	 * Get a set of messages.
+	 *
+	 * @param messages Messages to retrieve
+	 * @param additionalParams Additional parameters for the API
+	 * @param verbose Whether to output errors to the console, if any (default: `true`)
+	 * @returns Object keyed by identifiers and valued by messages
+	 */
+	async getMessages(messages: string|string[], additionalParams: ApiParams = {}, verbose = true): Promise<Record<string, string>> {
+
+		messages = (Array.isArray(messages) ? messages : [messages]).filter((v) => v);
+		if (!messages.length) return {};
+
+		const resArr = await this.massQuery(Object.assign({
+			meta: 'allmessages',
+			ammessages: messages
+		}, additionalParams), 'ammessages');
+
+		return resArr.reduce((acc: Record<string, string>, resObj) => {
+			const res = (<ApiResponse>resObj);
+			const resAm = res.query?.allmessages;
+			if (res.error && verbose) {
+				console.log(res.error);
+			} else if (!resAm && verbose) {
+				console.log({
+					error: {
+						code: 'ok-but-empty',
+						info: 'OK response but empty result'
+					}
+				});
+			} else if (resAm) {
+				resAm.forEach((obj) => {
+					if (!obj.missing) {
+						acc[obj.name] = obj.content;
+					}
+				});
+			}
+			return acc;
+		}, Object.create(null));
+
+	}
+
+	/**
+	 * Convenience method for `action=parse`.
+	 * 
+	 * @param content Content to parse
+	 * @param additionalParams Additional parameters for the API
+	 * @returns Parsed text (if resolved; error object if rejected)
+	 */
+	parse(content: string, additionalParams: ApiParams = {}): Promise<string> {
+		return this.post(Object.assign({
+			action: 'parse',
+			prop: 'text',
+			text: content,
+			contentmodel: 'wikitext'
+		}), additionalParams)
+		.then((res) => {
+			const text = (<ApiResponse>res).parse?.text;
+			if (typeof text !== 'string') {
+				throw {
+					error: {
+						code: 'ok-but-empty',
+						info: 'OK response but empty result'
+					}
+				};
+			} else {
+				return text;
+			}
+		}).catch(Promise.reject);
+	}
+
 	// login
 	// assertCurrentUser
 	// chunkedUpload
 	// chunkedUploadToStash
 	// finishUploadToStash
-	// getErrorMessage
-	// getFirstKey(
-	// getMessages(
-	// loadMessages
-	// loadMessagesIfMissing
-	// parse(
+	// loadMessages            // need mw.messages
+	// loadMessagesIfMissing   // need mw.messages
 	// retry
-	// rollback
-	// saveOption
-	// saveOptions
 	// slice
-	// unwatch(
 	// upload
 	// uploadChunk
 	// uploadFromStash
 	// uploadToStash
 	// uploadWithFormData
-	// watch
 
 }
 

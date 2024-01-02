@@ -27,6 +27,7 @@ export interface ApiResponse {
 		[key: string]: number;
 	};
 	normalized?: ApiResponseNormalized[];
+	parse?: ApiResponseParse;
 	requestid?: string;
 	servedby?: string;
 	uselang?: string;
@@ -63,6 +64,83 @@ export interface ApiResponseLogin {
 	lgusername?: string;
 	/** @deprecated */
 	token?: string;
+}
+
+// ************************************ action=parse ************************************
+
+export interface ApiResponseParse {
+	title: string;
+	pageid: number;
+	revid?: number;
+	text?: string;
+	langlinks?: {
+		lang: string;
+		url: string;
+		langname: string;
+		autonym: string;
+		title: string;
+	}[];
+	categories?: {
+		sortkey: string;
+		category: string;
+		hidden?: boolean;
+	}[];
+	categorieshtml?: string;
+	links?: {
+		ns: number;
+		title: string;
+		exists: boolean;
+	}[];
+	templates?: {
+		ns: number;
+		title: string;
+		exists: boolean;
+	}[];
+	images?: string[];
+	externallinks?: string[];
+	sections?: {
+		toclevel: number;
+		level: string;
+		line: string;
+		number: string;
+		index: string;
+		fromtitle: string;
+		byteoffset: number|null;
+		anchor: string;
+		linkAnchor: string;
+		extensionData?: {
+			[key: string]: string;
+		};
+	}[];
+	showtoc?: boolean;
+	parsewarnings?: unknown[];
+	parsewarningshtml?: unknown[];
+	displaytitle?: string;
+	subtitle?: string;
+	headitems?: unknown[];
+	headhtml?: string;
+	modules?: string[];
+	modulescripts?: unknown[];
+	modulestyles?: string[];
+	jsconfigvars?: {
+		[key: string]: any;
+	};
+	encodedjsconfigvars?: string;
+	indicators?: {
+		[key: string]: string;
+	};
+	iwlinks?: {
+		prefix: string;
+		url: string;
+		title: string;
+	}[];
+	wikitext?: string;
+	properties?: {
+		[key: string]: string;
+	};
+	limitreportdata?: Record<string, unknown>[];
+	limitreporthtml?: string;
+	parsetree?: string;
 }
 
 // ************************************ action=query ************************************
